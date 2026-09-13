@@ -47,31 +47,56 @@
               <el-tag v-if="r.status === 'completed'" type="success" size="small" class="record-tag">已完成</el-tag>
               <el-tag v-else type="warning" size="small" class="record-tag">待整改</el-tag>
             </div>
-            <p class="record-pair-desc">问题图 · 整改图（图片对）</p>
+            <p class="record-pair-desc">问题图 · 整改图（一一配对）</p>
             <div class="record-images">
-              <div class="record-img-wrap">
-                <span class="img-label">问题</span>
-                <img
+              <figure class="record-img-wrap">
+                <span class="img-label img-label-issue">问题</span>
+                <el-image
+                  v-if="r.issue_image"
                   :src="imageUrl(r.issue_image)"
                   alt="问题图"
-                  @error="(e) => (e.target.style.display = 'none')"
-                />
-              </div>
+                  fit="cover"
+                  class="record-img"
+                  hide-on-click-modal
+                  preview-src-list="[imageUrl(r.issue_image)]"
+                  preview-teleported
+                >
+                  <template #error>
+                    <div class="img-error">图片加载失败</div>
+                  </template>
+                </el-image>
+                <div v-else class="img-error">无问题图</div>
+              </figure>
               <div class="record-arrow">
                 <el-icon v-if="r.status === 'completed'" class="text-success"><CircleCheck /></el-icon>
                 <span v-else class="text-muted">→</span>
               </div>
-              <div class="record-img-wrap">
-                <span class="img-label">整改</span>
-                <img
+              <figure class="record-img-wrap">
+                <span class="img-label img-label-fix">整改</span>
+                <el-image
                   v-if="r.fix_image"
                   :src="imageUrl(r.fix_image)"
                   alt="整改图"
-                  @error="(e) => (e.target.style.display = 'none')"
-                />
-                <div v-else class="record-placeholder">待处理</div>
-              </div>
+                  fit="cover"
+                  class="record-img"
+                  hide-on-click-modal
+                  preview-src-list="[imageUrl(r.fix_image)]"
+                  preview-teleported
+                >
+                  <template #error>
+                    <div class="img-error">图片加载失败</div>
+                  </template>
+                </el-image>
+                <div v-else class="record-placeholder">
+                  <el-icon><PictureFilled /></el-icon>
+                  <span>待整改</span>
+                </div>
+              </figure>
             </div>
+            <p class="record-time">
+              <el-icon><Clock /></el-icon>
+              <span>上传时间：{{ formatTime(r.created_at) }}</span>
+            </p>
           </div>
         </div>
       </div>
@@ -81,7 +106,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { CircleCheck, DataAnalysis } from '@element-plus/icons-vue'
+import { CircleCheck, Clock, DataAnalysis, PictureFilled } from '@element-plus/icons-vue'
 import { api, apiBase } from '@/api/request'
 
 const loading = ref(true)
@@ -93,10 +118,34 @@ function imageUrl(path) {
   return path.startsWith('http') ? path : (base.replace(/\/$/, '') + path)
 }
 
+// 兼容多种时间格式（2026-09-13 10:20:30 / ISO / 时间戳），原样展示到分钟
+function formatTime(value) {
+  if (!value) return '—'
+  const str = String(value)
+  const m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T]?(\d{1,2})?:?(\d{1,2})?/)
+  if (m) {
+    const [, y, mo, d, h = '00', mi = '00'] = m
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')} ${h.padStart(2, '0')}:${mi.padStart(2, '0')}`
+  }
+  const dt = new Date(value)
+  if (!Number.isNaN(dt.getTime())) {
+    const p = (n) => String(n).padStart(2, '0')
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}`
+  }
+  return str
+}
+
 async function loadSummary() {
   loading.value = true
   try {
-    summary.value = await api.getSummary()
+    const data = await api.getSummary()
+    // 双保险：后端已按 sequence_key 升序，前端再排一次，保证 key 从小到大
+    summary.value = (data || []).map((group) => ({
+      ...group,
+      records: [...(group.records || [])].sort(
+        (a, b) => (Number(a.sequence_key) || 0) - (Number(b.sequence_key) || 0)
+      ),
+    }))
   } catch (_) {
     summary.value = []
   } finally {
@@ -258,7 +307,7 @@ onMounted(loadSummary)
   padding: 20px 24px;
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
 }
 
 .record-item {
@@ -316,14 +365,23 @@ onMounted(loadSummary)
 
 .img-label {
   position: absolute;
-  top: 6px;
-  left: 6px;
-  background: rgba(0, 0, 0, 0.6);
+  top: 8px;
+  left: 8px;
   color: white;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
   z-index: 1;
+  line-height: 1.6;
+}
+
+.img-label-issue {
+  background: rgba(239, 68, 68, 0.92);
+}
+
+.img-label-fix {
+  background: rgba(16, 185, 129, 0.92);
 }
 
 .record-tag {
@@ -340,24 +398,29 @@ onMounted(loadSummary)
   position: relative;
   flex: 1;
   min-width: 0;
+  margin: 0;
   border-radius: 8px;
   overflow: hidden;
   background: #e2e8f0;
   aspect-ratio: 4/3;
 }
 
-.record-img-wrap:first-of-type .img-label {
-  background: rgba(239, 68, 68, 0.9);
-}
-
-.record-img-wrap:last-of-type .img-label {
-  background: rgba(16, 185, 129, 0.9);
-}
-
-.record-img-wrap img {
+.record-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  display: block;
+  cursor: zoom-in;
+}
+
+.img-error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #94a3b8;
+  background: #f1f5f9;
 }
 
 .record-arrow {
@@ -381,9 +444,114 @@ onMounted(loadSummary)
   width: 100%;
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   font-size: 13px;
   color: #94a3b8;
+  background: repeating-linear-gradient(
+    -45deg,
+    #f8fafc,
+    #f8fafc 8px,
+    #f1f5f9 8px,
+    #f1f5f9 16px
+  );
+}
+
+.record-placeholder .el-icon {
+  font-size: 22px;
+}
+
+.record-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.record-time .el-icon {
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+/* 手机端：卡片占满整行，放大可点区域，保证图片清晰可辨 */
+@media (max-width: 640px) {
+  .page-header {
+    margin-bottom: 20px;
+  }
+
+  .page-title {
+    font-size: 22px;
+  }
+
+  .page-desc {
+    font-size: 13px;
+  }
+
+  .summary-header {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .summary-user {
+    gap: 10px;
+  }
+
+  .user-avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 16px;
+  }
+
+  .summary-name {
+    font-size: 17px;
+  }
+
+  .summary-stats {
+    width: 100%;
+    gap: 20px;
+    justify-content: space-between;
+  }
+
+  .stat-value {
+    font-size: 17px;
+  }
+
+  .summary-records {
+    padding: 14px;
+    gap: 14px;
+    grid-template-columns: 1fr;
+  }
+
+  .record-item {
+    padding: 14px;
+  }
+
+  .record-meta {
+    gap: 6px;
+    font-size: 13px;
+  }
+
+  .record-images {
+    gap: 8px;
+  }
+
+  .record-img-wrap {
+    border-radius: 10px;
+  }
+
+  .record-arrow {
+    font-size: 18px;
+  }
+
+  .img-label {
+    top: 6px;
+    left: 6px;
+    font-size: 11px;
+    padding: 1px 8px;
+  }
 }
 </style>
