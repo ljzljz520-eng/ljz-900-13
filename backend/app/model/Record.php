@@ -14,6 +14,7 @@ class Record extends Model
         'sequence_key' => 'int',
         'issue_image'  => 'string',
         'fix_image'    => 'string',
+        'fixed_at'     => 'datetime',
         'status'       => 'string',
         'check_date'   => 'date',
         'created_at'   => 'datetime',

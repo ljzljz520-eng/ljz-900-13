@@ -2,7 +2,7 @@
   <div class="summary-page">
     <header class="page-header">
       <h1 class="page-title">汇总看板</h1>
-      <p class="page-desc">问题图与整改图成对展示，按 #key 从小到大排序，同一徽章（检查项+分值）共用</p>
+      <p class="page-desc">问题图与整改图一一配对展示，按 #key 从小到大排序；每组含检查项、扣分值与上传时间</p>
     </header>
 
     <section v-loading="loading" class="summary-section">
@@ -44,33 +44,78 @@
               <span class="record-seq">#{{ r.sequence_key }}</span>
               <span class="badge-name">{{ r.item_name_snapshot || r.item?.name }}</span>
               <span class="badge-score">-{{ (r.item_score_snapshot ?? r.item?.score) }}分</span>
-              <el-tag v-if="r.status === 'completed'" type="success" size="small" class="record-tag">已完成</el-tag>
-              <el-tag v-else type="warning" size="small" class="record-tag">待整改</el-tag>
+              <el-tag
+                :type="r.status === 'completed' ? 'success' : 'warning'"
+                size="small"
+                class="record-tag"
+                effect="light"
+              >
+                {{ r.status === 'completed' ? '已整改' : '待整改' }}
+              </el-tag>
             </div>
-            <p class="record-pair-desc">问题图 · 整改图（图片对）</p>
+
             <div class="record-images">
-              <div class="record-img-wrap">
+              <div class="record-img-wrap issue">
                 <span class="img-label">问题</span>
-                <img
+                <el-image
+                  v-if="r.issue_image"
                   :src="imageUrl(r.issue_image)"
                   alt="问题图"
-                  @error="(e) => (e.target.style.display = 'none')"
-                />
+                  fit="cover"
+                  class="record-img"
+                  :preview-src-list="[imageUrl(r.issue_image)]"
+                  preview-teleported
+                  hide-on-click-modal
+                >
+                  <template #error>
+                    <div class="img-error">图片加载失败</div>
+                  </template>
+                </el-image>
+                <div v-else class="img-error">无问题图</div>
               </div>
-              <div class="record-arrow">
+
+              <div class="record-arrow" aria-hidden="true">
                 <el-icon v-if="r.status === 'completed'" class="text-success"><CircleCheck /></el-icon>
                 <span v-else class="text-muted">→</span>
               </div>
-              <div class="record-img-wrap">
+
+              <div class="record-img-wrap fix">
                 <span class="img-label">整改</span>
-                <img
+                <el-image
                   v-if="r.fix_image"
                   :src="imageUrl(r.fix_image)"
                   alt="整改图"
-                  @error="(e) => (e.target.style.display = 'none')"
-                />
-                <div v-else class="record-placeholder">待处理</div>
+                  fit="cover"
+                  class="record-img"
+                  :preview-src-list="[imageUrl(r.fix_image)]"
+                  preview-teleported
+                  hide-on-click-modal
+                >
+                  <template #error>
+                    <div class="img-error">图片加载失败</div>
+                  </template>
+                </el-image>
+                <div v-else class="record-placeholder">
+                  <el-icon class="placeholder-icon"><PictureFilled /></el-icon>
+                  <span>待整改</span>
+                </div>
               </div>
+            </div>
+
+            <div class="record-footer">
+              <span class="record-time">
+                <el-icon><Clock /></el-icon>
+                问题图上传：{{ formatTime(r.created_at) || '—' }}
+              </span>
+              <span v-if="r.fix_image" class="record-time fix-time">
+                <el-icon><CircleCheck /></el-icon>
+                整改图上传：{{ formatTime(r.fixed_at) || '—' }}
+              </span>
+              <span v-else class="record-time fix-time pending">
+                <el-icon><PictureFilled /></el-icon>
+                整改图：待整改
+              </span>
+              <span v-if="r.check_date" class="record-date">检查日期：{{ r.check_date }}</span>
             </div>
           </div>
         </div>
@@ -81,7 +126,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { CircleCheck, DataAnalysis } from '@element-plus/icons-vue'
+import { CircleCheck, Clock, DataAnalysis, PictureFilled } from '@element-plus/icons-vue'
 import { api, apiBase } from '@/api/request'
 
 const loading = ref(true)
@@ -93,10 +138,32 @@ function imageUrl(path) {
   return path.startsWith('http') ? path : (base.replace(/\/$/, '') + path)
 }
 
+// 兼容后端 datetime（"2026-10-02 09:30:00"）与 ISO 格式，输出 YYYY-MM-DD HH:mm
+function formatTime(value) {
+  if (!value) return ''
+  let d
+  if (typeof value === 'string') {
+    d = new Date(value.includes('T') ? value : value.replace(' ', 'T'))
+  } else {
+    d = new Date(value)
+  }
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 async function loadSummary() {
   loading.value = true
   try {
-    summary.value = await api.getSummary()
+    const data = await api.getSummary()
+    // 前端兜底：确保每位员工的记录都按 key 从小到大
+    summary.value = (data || []).map((g) => ({
+      ...g,
+      records: [...(g.records || [])].sort(
+        (a, b) => (Number(a.sequence_key) || 0) - (Number(b.sequence_key) || 0)
+      ),
+    }))
   } catch (_) {
     summary.value = []
   } finally {
@@ -258,7 +325,7 @@ onMounted(loadSummary)
   padding: 20px 24px;
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
 }
 
 .record-item {
@@ -266,6 +333,10 @@ onMounted(loadSummary)
   border-radius: 12px;
   padding: 16px;
   border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
   transition: box-shadow 0.2s;
 }
 
@@ -277,7 +348,6 @@ onMounted(loadSummary)
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
   flex-wrap: wrap;
 }
 
@@ -287,43 +357,21 @@ onMounted(loadSummary)
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 700;
+  flex-shrink: 0;
 }
 
 .badge-name {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: #334155;
+  min-width: 0;
 }
 
 .badge-score {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   color: #ef4444;
-  margin-left: 4px;
-}
-
-.record-pair-desc {
-  font-size: 12px;
-  color: #94a3b8;
-  margin: 0 0 10px;
-}
-
-.record-item-name {
-  font-size: 13px;
-  color: #64748b;
-}
-
-.img-label {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  z-index: 1;
 }
 
 .record-tag {
@@ -338,34 +386,61 @@ onMounted(loadSummary)
 
 .record-img-wrap {
   position: relative;
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
   background: #e2e8f0;
   aspect-ratio: 4/3;
 }
 
-.record-img-wrap:first-of-type .img-label {
-  background: rgba(239, 68, 68, 0.9);
+.record-img-wrap.issue .img-label {
+  background: rgba(239, 68, 68, 0.92);
 }
 
-.record-img-wrap:last-of-type .img-label {
-  background: rgba(16, 185, 129, 0.9);
+.record-img-wrap.fix .img-label {
+  background: rgba(16, 185, 129, 0.92);
 }
 
-.record-img-wrap img {
+.record-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  display: block;
+  cursor: zoom-in;
+}
+
+.img-label {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  z-index: 1;
+  line-height: 1.4;
+}
+
+.img-error {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #94a3b8;
+  background: #f1f5f9;
 }
 
 .record-arrow {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: center;
   font-size: 20px;
   color: #94a3b8;
+  width: 20px;
 }
 
 .text-success {
@@ -381,9 +456,116 @@ onMounted(loadSummary)
   width: 100%;
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #b45309;
+  background: repeating-linear-gradient(
+    -45deg,
+    #fffbeb,
+    #fffbeb 10px,
+    #fef3c7 10px,
+    #fef3c7 20px
+  );
+}
+
+.placeholder-icon {
+  font-size: 22px;
+  color: #f59e0b;
+}
+
+.record-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-top: 1px dashed #e2e8f0;
+  padding-top: 10px;
+}
+
+.record-time,
+.record-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.record-time .el-icon {
   font-size: 13px;
   color: #94a3b8;
+}
+
+.record-time.fix-time {
+  color: #047857;
+}
+
+.record-time.fix-time .el-icon {
+  color: #10b981;
+}
+
+.record-time.fix-time.pending {
+  color: #b45309;
+}
+
+.record-time.fix-time.pending .el-icon {
+  color: #f59e0b;
+}
+
+/* ===== 手机端：整组纵向排列，问题图/整改图上下堆叠且保持足够大 ===== */
+@media (max-width: 640px) {
+  .summary-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .summary-stats {
+    width: 100%;
+    gap: 0;
+    justify-content: space-between;
+  }
+
+  .summary-records {
+    padding: 14px;
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .record-item {
+    padding: 14px;
+  }
+
+  .badge-name {
+    font-size: 13px;
+  }
+
+  /* 问题 → 箭头 → 整改 改为上下布局，两张图占满整行宽度，手机上看得清 */
+  .record-images {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .record-arrow {
+    width: auto;
+    height: 20px;
+    transform: rotate(90deg);
+  }
+
+  .record-img-wrap {
+    aspect-ratio: 16/10;
+  }
+
+  .record-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
 }
 </style>

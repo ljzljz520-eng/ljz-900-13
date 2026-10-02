@@ -192,6 +192,7 @@ class RecordController
                 return api_json(['code' => 400, 'message' => '缺少 fix_image', 'data' => null]);
             }
             $record->fix_image = $fixImage;
+            $record->fixed_at = date('Y-m-d H:i:s');
             $record->status = 'completed';
             $record->save();
             $record = Record::with(['item'])->find($record->id)->toArray();
