@@ -184,6 +184,47 @@ async function handleLogout() {
   width: 100%;
 }
 
+/* 手机适配：收紧顶栏与内容间距，窄屏只保留图标，避免横向溢出 */
+@media (max-width: 768px) {
+  .main-header-inner {
+    padding: 0 12px;
+    gap: 12px;
+    height: 56px;
+  }
+
+  .brand-text {
+    display: none;
+  }
+
+  .header-user {
+    display: none;
+  }
+
+  .nav-link {
+    padding: 8px 10px;
+    gap: 4px;
+    font-size: 13px;
+  }
+
+  .main-content {
+    padding: 16px 12px;
+  }
+}
+
+@media (max-width: 560px) {
+  .nav-link span {
+    display: none;
+  }
+
+  .nav-link {
+    padding: 8px;
+  }
+
+  .logout-btn span {
+    display: none;
+  }
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;

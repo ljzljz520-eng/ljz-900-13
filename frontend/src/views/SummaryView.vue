@@ -2,7 +2,7 @@
   <div class="summary-page">
     <header class="page-header">
       <h1 class="page-title">汇总看板</h1>
-      <p class="page-desc">问题图与整改图成对展示，按 #key 从小到大排序，同一徽章（检查项+分值）共用</p>
+      <p class="page-desc">问题图与整改图按 #key 从小到大一一配对展示，点击图片可放大查看</p>
     </header>
 
     <section v-loading="loading" class="summary-section">
@@ -47,9 +47,12 @@
               <el-tag v-if="r.status === 'completed'" type="success" size="small" class="record-tag">已完成</el-tag>
               <el-tag v-else type="warning" size="small" class="record-tag">待整改</el-tag>
             </div>
-            <p class="record-pair-desc">问题图 · 整改图（图片对）</p>
+            <div class="record-time">
+              <el-icon><Clock /></el-icon>
+              <span>上传时间：{{ formatTime(r.created_at) }}</span>
+            </div>
             <div class="record-images">
-              <div class="record-img-wrap">
+              <div class="record-img-wrap" @click="openPreview(r.issue_image)">
                 <span class="img-label">问题</span>
                 <img
                   :src="imageUrl(r.issue_image)"
@@ -61,7 +64,11 @@
                 <el-icon v-if="r.status === 'completed'" class="text-success"><CircleCheck /></el-icon>
                 <span v-else class="text-muted">→</span>
               </div>
-              <div class="record-img-wrap">
+              <div
+                class="record-img-wrap"
+                :class="{ pending: !r.fix_image }"
+                @click="r.fix_image && openPreview(r.fix_image)"
+              >
                 <span class="img-label">整改</span>
                 <img
                   v-if="r.fix_image"
@@ -69,23 +76,32 @@
                   alt="整改图"
                   @error="(e) => (e.target.style.display = 'none')"
                 />
-                <div v-else class="record-placeholder">待处理</div>
+                <div v-else class="record-placeholder">
+                  <el-icon class="placeholder-icon"><Camera /></el-icon>
+                  <span>待整改</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
     </section>
+
+    <el-dialog v-model="previewVisible" title="图片预览" width="92%" class="preview-dialog" append-to-body>
+      <img v-if="previewUrl" :src="previewUrl" alt="预览" class="preview-img" />
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { CircleCheck, DataAnalysis } from '@element-plus/icons-vue'
+import { Camera, CircleCheck, Clock, DataAnalysis } from '@element-plus/icons-vue'
 import { api, apiBase } from '@/api/request'
 
 const loading = ref(true)
 const summary = ref([])
+const previewVisible = ref(false)
+const previewUrl = ref('')
 
 function imageUrl(path) {
   if (!path) return ''
@@ -93,10 +109,30 @@ function imageUrl(path) {
   return path.startsWith('http') ? path : (base.replace(/\/$/, '') + path)
 }
 
+// created_at 形如 "2026-10-02 14:30:00"，格式化为 "2026-10-02 14:30"
+function formatTime(t) {
+  if (!t) return '—'
+  const d = new Date(String(t).replace(' ', 'T'))
+  if (Number.isNaN(d.getTime())) return String(t)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function openPreview(path) {
+  if (!path) return
+  previewUrl.value = imageUrl(path)
+  previewVisible.value = true
+}
+
 async function loadSummary() {
   loading.value = true
   try {
-    summary.value = await api.getSummary()
+    const data = await api.getSummary()
+    // 兜底：确保每组记录按 #key 从小到大排列（后端已按 sequence_key 升序返回）
+    summary.value = (Array.isArray(data) ? data : []).map((u) => ({
+      ...u,
+      records: [...(u.records || [])].sort((a, b) => (a.sequence_key ?? 0) - (b.sequence_key ?? 0)),
+    }))
   } catch (_) {
     summary.value = []
   } finally {
@@ -258,7 +294,7 @@ onMounted(loadSummary)
   padding: 20px 24px;
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
 }
 
 .record-item {
@@ -303,7 +339,10 @@ onMounted(loadSummary)
   margin-left: 4px;
 }
 
-.record-pair-desc {
+.record-time {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   color: #94a3b8;
   margin: 0 0 10px;
@@ -344,6 +383,13 @@ onMounted(loadSummary)
   overflow: hidden;
   background: #e2e8f0;
   aspect-ratio: 4/3;
+  cursor: zoom-in;
+}
+
+.record-img-wrap.pending {
+  background: #f8fafc;
+  border: 1.5px dashed #cbd5e1;
+  cursor: default;
 }
 
 .record-img-wrap:first-of-type .img-label {
@@ -352,6 +398,11 @@ onMounted(loadSummary)
 
 .record-img-wrap:last-of-type .img-label {
   background: rgba(16, 185, 129, 0.9);
+}
+
+/* 待整改占位：标签置灰，覆盖上面的绿色 */
+.record-img-wrap.pending .img-label {
+  background: rgba(148, 163, 184, 0.9);
 }
 
 .record-img-wrap img {
@@ -381,9 +432,104 @@ onMounted(loadSummary)
   width: 100%;
   height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   font-size: 13px;
   color: #94a3b8;
+}
+
+.placeholder-icon {
+  font-size: 22px;
+  color: #cbd5e1;
+}
+
+.preview-dialog :deep(.el-dialog) {
+  max-width: 900px;
+}
+
+.preview-img {
+  width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+/* 手机适配：小屏下单列、收紧间距，保证图片对和文字清晰可读 */
+@media (max-width: 768px) {
+  .page-header {
+    margin-bottom: 20px;
+  }
+
+  .page-title {
+    font-size: 22px;
+  }
+
+  .page-desc {
+    font-size: 13px;
+  }
+
+  .summary-section {
+    gap: 16px;
+  }
+
+  .summary-header {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+
+  .summary-name {
+    font-size: 17px;
+  }
+
+  .user-avatar {
+    width: 38px;
+    height: 38px;
+    font-size: 16px;
+  }
+
+  .summary-stats {
+    gap: 20px;
+  }
+
+  .stat-value {
+    font-size: 17px;
+  }
+
+  .summary-records {
+    padding: 14px;
+    gap: 14px;
+    grid-template-columns: 1fr;
+  }
+
+  .record-item {
+    padding: 12px;
+  }
+
+  .record-images {
+    gap: 8px;
+  }
+
+  .record-arrow {
+    font-size: 16px;
+  }
+
+  .text-success {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 400px) {
+  .record-meta {
+    gap: 6px;
+  }
+
+  .record-tag {
+    margin-left: 0;
+  }
+
+  .record-images {
+    gap: 6px;
+  }
 }
 </style>
